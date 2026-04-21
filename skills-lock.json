@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "deesse-fp": {
+      "source": "nesalia-inc/fp",
+      "sourceType": "github",
+      "computedHash": "7ce603bb22eedbcc31f7dfd95c4023ebf47d22560c527b6ae6e3cdc0741de9dd"
+    }
+  }
+}

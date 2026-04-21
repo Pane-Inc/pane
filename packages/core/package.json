@@ -1,0 +1,48 @@
+{
+  "name": "@pane/core",
+  "version": "0.1.0",
+  "description": "The foundational package of the Pane ecosystem. Pure JavaScript/TypeScript library handling all internal logic for the .pane file format.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "pane",
+    "document",
+    "sqlite",
+    "local-first"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "better-sqlite3": "^11.0.0",
+    "drizzle-orm": "^0.36.0",
+    "proper-lockfile": "^4.1.2",
+    "uuid": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/uuid": "^10.0.0",
+    "drizzle-orm": "^0.36.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "@deessejs/fp": "^3.1.1",
+    "zod": "^4.3.6"
+  }
+}

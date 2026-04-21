@@ -1,0 +1,12 @@
+{
+  "name": "wareflow",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "examples"
+  ],
+  "scripts": {
+    "build": "npm run build -w packages/core",
+    "test": "npm run test -w packages/core"
+  }
+}

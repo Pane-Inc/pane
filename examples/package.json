@@ -1,0 +1,14 @@
+{
+  "name": "@wareflow/examples",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "example:01": "tsx 01-basic-usage.ts",
+    "example:02": "tsx 02-advanced-usage.ts",
+    "example:03": "tsx 03-file-locking.ts"
+  },
+  "dependencies": {
+    "@deessejs/fp": "^3.1.1"
+  }
+}

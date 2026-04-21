@@ -1,0 +1,5 @@
+# Generated pane files
+*.pane
+*.pane.lock
+*.pane-wal
+*.pane-shm
