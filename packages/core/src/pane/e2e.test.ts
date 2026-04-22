@@ -263,10 +263,7 @@ describe('Full Workflow E2E', () => {
     reopenedPane.close();
   });
 
-  it.skip('adds fields to existing table via addField', () => {
-    // NOTE: This test is skipped because addTable does not update the in-memory
-    // schema state, so addField cannot find the table by id. This is a known
-    // limitation - the schema would need to be refreshed after addTable.
+  it('adds fields to existing table via addField', () => {
     const filePath = getTestPath('add-field-test');
     cleanup(filePath);
 

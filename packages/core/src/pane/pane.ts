@@ -23,11 +23,11 @@ import type { ParsedSchema } from './internal/database';
 
 const createPaneObject = (
   state: PaneState,
-  schema: ParsedSchema
+  _initialSchema: ParsedSchema
 ): Pane => {
   const buildSchema = () => ({
-    version: schema.version,
-    tables: schema.tables.map(t => ({
+    version: state.schema.version,
+    tables: state.schema.tables.map(t => ({
       id: t.id,
       name: t.name,
       label: t.label,
@@ -89,7 +89,16 @@ const createPaneObject = (
         return err(ReadOnlyError({})) as unknown as Result<number, Error>;
       }
       const result = createUserTable(state.db, definition);
-      return result as unknown as Result<number, Error>;
+      if (!result.ok) {
+        return result as unknown as Result<number, Error>;
+      }
+      // Refresh schema after mutation
+      const schemaRefreshResult = readSchemaFromDb(state.db);
+      if (!schemaRefreshResult.ok) {
+        return err(schemaRefreshResult.error) as unknown as Result<number, Error>;
+      }
+      state.schema = schemaRefreshResult.value;
+      return ok(result.value) as unknown as Result<number, Error>;
     },
     addField: (tableId: number, definition: FieldDefinition) => {
       if (state.isReadOnly) {
@@ -100,7 +109,16 @@ const createPaneObject = (
         return err(SchemaError({ reason: `Table with id ${tableId} not found` })) as unknown as Result<number, Error>;
       }
       const result = addFieldToTable(state.db, tableId, table.name, definition);
-      return result as unknown as Result<number, Error>;
+      if (!result.ok) {
+        return result as unknown as Result<number, Error>;
+      }
+      // Refresh schema after mutation
+      const schemaRefreshResult = readSchemaFromDb(state.db);
+      if (!schemaRefreshResult.ok) {
+        return err(schemaRefreshResult.error) as unknown as Result<number, Error>;
+      }
+      state.schema = schemaRefreshResult.value;
+      return ok(result.value) as unknown as Result<number, Error>;
     },
     addView: (tableId: number | null, definition: { name: string; icon?: string; type: 'list' | 'kanban' | 'calendar' | 'chart' | 'custom'; config: Record<string, unknown>; }) => {
       if (state.isReadOnly) {
