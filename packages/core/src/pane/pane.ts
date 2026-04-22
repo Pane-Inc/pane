@@ -28,10 +28,10 @@ const createPaneObject = (
   const buildSchema = () => ({
     version: schema.version,
     tables: schema.tables.map(t => ({
-      id: t._id,
-      name: t._name,
-      label: t._label,
-      labelPlural: t._label_plural,
+      id: t.id,
+      name: t.name,
+      label: t.label,
+      labelPlural: t.labelPlural,
       icon: t.icon,
       fields: t.fields.map(f => ({
         id: f.id,
@@ -95,11 +95,11 @@ const createPaneObject = (
       if (state.isReadOnly) {
         return err(ReadOnlyError({})) as unknown as Result<number, Error>;
       }
-      const table = state.schema.tables.find(t => t._id === tableId);
+      const table = state.schema.tables.find(t => t.id === tableId);
       if (!table) {
         return err(SchemaError({ reason: `Table with id ${tableId} not found` })) as unknown as Result<number, Error>;
       }
-      const result = addFieldToTable(state.db, tableId, table._name, definition);
+      const result = addFieldToTable(state.db, tableId, table.name, definition);
       return result as unknown as Result<number, Error>;
     },
     addView: (tableId: number | null, definition: { name: string; icon?: string; type: 'list' | 'kanban' | 'calendar' | 'chart' | 'custom'; config: Record<string, unknown>; }) => {
@@ -229,12 +229,10 @@ export const createPane = (options: CreatePaneOptions): { ok: true; value: Pane 
     return { ok: false, error: createSysResult.error };
   }
 
-  // Step 7: Initialize meta
-  if (name) {
-    const metaResult = initMeta(db, name);
-    if (!metaResult.ok) {
-      return { ok: false, error: metaResult.error };
-    }
+  // Step 7: Initialize meta (always insert version, name is optional)
+  const metaResult = initMeta(db, name);
+  if (!metaResult.ok) {
+    return { ok: false, error: metaResult.error };
   }
 
   // Step 8: Read schema

@@ -19,7 +19,23 @@ const readRows = (
   return attempt(
     () => {
       const stmt = db.prepare(`SELECT * FROM ${table}`);
-      return stmt.all() as Row[];
+      const rows = stmt.all() as Row[];
+      // Parse JSON for any field that looks like a JSON array string
+      return rows.map(row => {
+        const parsed: Row = {};
+        for (const [key, value] of Object.entries(row)) {
+          if (typeof value === 'string' && value.startsWith('[') && value.endsWith(']')) {
+            try {
+              parsed[key] = JSON.parse(value);
+            } catch {
+              parsed[key] = value;
+            }
+          } else {
+            parsed[key] = value;
+          }
+        }
+        return parsed;
+      });
     },
     (error) => SchemaError({ reason: String(error) })
   );
@@ -41,7 +57,11 @@ const insertRow = (
       const columns = Object.keys(values);
       const placeholders = columns.map(() => '?').join(', ');
       const stmt = db.prepare(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`);
-      return stmt.run(...Object.values(values)).lastInsertRowid as number;
+      // JSON.stringify array values before inserting
+      const serializedValues = Object.values(values).map(v =>
+        Array.isArray(v) ? JSON.stringify(v) : v
+      );
+      return stmt.run(...serializedValues).lastInsertRowid as number;
     },
     (error) => SchemaError({ reason: String(error) })
   );

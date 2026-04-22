@@ -43,8 +43,9 @@ const closePane = (state: PaneState): Try<undefined, ReturnType<typeof CopyError
   }
   const deleteResult = deleteFile(state.tempPath);
   if (!deleteResult.ok) {
-    return err(LockError({ holderId: deleteResult.error.args.holderId }));
+    return err(LockError({ holderId: 'delete_failed', holderName: deleteResult.error.reason }));
   }
+  // Always release lock, even on errors above
   if (isNone(state.lock)) {
     return ok(undefined);
   }

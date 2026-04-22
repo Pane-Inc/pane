@@ -23,10 +23,10 @@ export interface ParsedField {
 }
 
 export interface ParsedTable {
-  _id: number;
-  _name: string;
-  _label: string;
-  _label_plural: string;
+  id: number;
+  name: string;
+  label: string;
+  labelPlural: string;
   icon?: string;
   fields: ParsedField[];
 }
@@ -163,11 +163,11 @@ const readSchemaFromDb = (db: Database.Database): Try<ParsedSchema, ReturnType<t
       const versionRow = metaRows.find(r => r._key === 'version');
 
       if (!versionRow) {
-        throw SchemaError({ reason: 'Missing version in _meta' });
+        throw new Error('Missing version in _meta');
       }
 
       if (!SUPPORTED_VERSIONS.includes(versionRow._value)) {
-        throw SchemaError({ reason: `Unsupported version: ${versionRow._value}` });
+        throw new Error(`Unsupported version: ${versionRow._value}`);
       }
 
       const tableRows = db.prepare(
@@ -179,10 +179,10 @@ const readSchemaFromDb = (db: Database.Database): Try<ParsedSchema, ReturnType<t
       ).all() as Record<string, unknown>[];
 
       const tables = tableRows.map(t => ({
-        _id: t._id,
-        _name: t._name,
-        _label: t._label,
-        _label_plural: t._label_plural,
+        id: t._id,
+        name: t._name,
+        label: t._label,
+        labelPlural: t._label_plural,
         icon: t._icon ?? undefined,
         fields: fieldRows
           .filter(f => f._table_id === t._id)
@@ -195,6 +195,20 @@ const readSchemaFromDb = (db: Database.Database): Try<ParsedSchema, ReturnType<t
       // Re-throw if it's already a SchemaError
       if (error && typeof error === 'object' && 'name' in error && error.name === 'SchemaError') {
         return error as ReturnType<typeof SchemaError>;
+      }
+      // The error passed here is what attempt() constructed from the caught error.
+      // attempt() does: new Error(String(originalError)) for non-Error objects.
+      // So for a thrown non-Error object, error.message = "Error: [object Object]"
+      // For a caught Error object, error.message = the actual message
+      if (error && typeof error === 'object' && 'message' in error) {
+        const msg = String(error.message);
+        // If message is "[object Object]" or "Error: [object Object]", the original
+        // was a non-Error object which we couldn't extract info from
+        if (msg === '[object Object]' || msg === 'Error: [object Object]') {
+          return SchemaError({ reason: 'Unexpected error type in schema read' });
+        }
+        // Otherwise use the message
+        return SchemaError({ reason: msg });
       }
       return SchemaError({ reason: String(error) });
     }
