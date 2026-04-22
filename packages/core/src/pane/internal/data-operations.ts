@@ -52,9 +52,14 @@ const insertRow = (
   if (!validateIdentifier(table)) {
     return err(InvalidIdentifierError({ identifier: table }));
   }
+  const columns = Object.keys(values);
+  for (const column of columns) {
+    if (!validateIdentifier(column)) {
+      return err(InvalidIdentifierError({ identifier: column }));
+    }
+  }
   return attempt(
     () => {
-      const columns = Object.keys(values);
       const placeholders = columns.map(() => '?').join(', ');
       const stmt = db.prepare(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`);
       // JSON.stringify array values before inserting
@@ -79,9 +84,15 @@ const updateRow = (
   if (!validateIdentifier(table)) {
     return err(InvalidIdentifierError({ identifier: table }));
   }
+  const columns = Object.keys(values);
+  for (const column of columns) {
+    if (!validateIdentifier(column)) {
+      return err(InvalidIdentifierError({ identifier: column }));
+    }
+  }
   return attempt(
     () => {
-      const setClause = Object.keys(values).map(k => `${k} = ?`).join(', ');
+      const setClause = columns.map(k => `${k} = ?`).join(', ');
       const stmt = db.prepare(`UPDATE ${table} SET ${setClause} WHERE id = ?`);
       stmt.run(...Object.values(values), id);
       return undefined;
@@ -122,6 +133,17 @@ const upsertRow = (
   }
   if (!validateIdentifier(table)) {
     return err(InvalidIdentifierError({ identifier: table }));
+  }
+  const columns = Object.keys(values);
+  for (const column of columns) {
+    if (!validateIdentifier(column)) {
+      return err(InvalidIdentifierError({ identifier: column }));
+    }
+  }
+  for (const field of matchFields) {
+    if (!validateIdentifier(field)) {
+      return err(InvalidIdentifierError({ identifier: field }));
+    }
   }
   return attempt(
     () => {

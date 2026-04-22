@@ -136,7 +136,11 @@ const createSystemTables = (db: Database.Database): Try<undefined, ReturnType<ty
       return undefined;
     },
     (error) => {
-      try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+      try {
+        db.exec('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Failed to rollback system table creation transaction', rollbackError);
+      }
       return SchemaError({ reason: String(error) });
     }
   );
@@ -163,11 +167,11 @@ const readSchemaFromDb = (db: Database.Database): Try<ParsedSchema, ReturnType<t
       const versionRow = metaRows.find(r => r._key === 'version');
 
       if (!versionRow) {
-        throw new Error('Missing version in _meta');
+        throw SchemaError({ reason: 'Missing version in _meta' });
       }
 
       if (!SUPPORTED_VERSIONS.includes(versionRow._value)) {
-        throw new Error(`Unsupported version: ${versionRow._value}`);
+        throw SchemaError({ reason: `Unsupported version: ${versionRow._value}` });
       }
 
       const tableRows = db.prepare(

@@ -31,24 +31,23 @@ const createUserTable = (
       const tableId = result.lastInsertRowid as number;
 
       if (definition.fields.length > 0) {
-        const insertField = db.prepare(`
+        const rowPlaceholders = definition.fields.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ");
+        const insertFields = db.prepare(`
           INSERT INTO _fields (_table_id, _name, _label, _type, _required, _default_value, _options, _formula, _sort_order)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES ${rowPlaceholders}
         `);
-
-        definition.fields.forEach((field, index) => {
-          insertField.run(
-            tableId,
-            field.name,
-            field.label,
-            field.type,
-            field.required ? 1 : 0,
-            field.defaultValue ? JSON.stringify(field.defaultValue) : null,
-            field.options ? JSON.stringify(field.options) : null,
-            field.formula ?? null,
-            index
-          );
-        });
+        const insertFieldParams = definition.fields.flatMap((field, index) => [
+          tableId,
+          field.name,
+          field.label,
+          field.type,
+          field.required ? 1 : 0,
+          field.defaultValue ? JSON.stringify(field.defaultValue) : null,
+          field.options ? JSON.stringify(field.options) : null,
+          field.formula ?? null,
+          index,
+        ]);
+        insertFields.run(...insertFieldParams);
       }
 
       const columnDefs = definition.fields.map(f => {

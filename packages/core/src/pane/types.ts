@@ -2,7 +2,6 @@
 import type { Maybe } from '@deessejs/fp';
 import type { LockHandle } from '../lock';
 import type { Schema, TableDefinition, FieldDefinition } from '../schema';
-import type { FilterDefinition } from '../filters';
 import type { Row } from '../primitives';
 
 // Re-export Row for convenience
@@ -15,7 +14,7 @@ export type Pane = {
   readonly isReadOnly: boolean;
 
   // Data operations
-  read: (table: string, options?: ReadOptions) => import('@deessejs/fp').Result<readonly Row[], import('@deessejs/fp').Error>;
+  read: (table: string) => import('@deessejs/fp').Result<readonly Row[], import('@deessejs/fp').Error>;
   create: (table: string, values: Row) => import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
   update: (table: string, id: number, values: Row) => import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
   delete: (table: string, id: number) => import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
@@ -29,18 +28,6 @@ export type Pane = {
   // Lifecycle
   commit: () => import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
   close: () => import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
-};
-
-export type ReadOptions = {
-  readonly where?: FilterDefinition;
-  readonly orderBy?: readonly OrderBy[];
-  readonly limit?: number;
-  readonly offset?: number;
-};
-
-export type OrderBy = {
-  readonly field: string;
-  readonly direction: 'asc' | 'desc';
 };
 
 export type ViewDefinition = {

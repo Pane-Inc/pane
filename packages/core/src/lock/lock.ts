@@ -10,16 +10,7 @@ import * as properLockfile from 'proper-lockfile';
 const LOCK_DURATION_MS = 15 * 60 * 1000;
 const LOCK_SUFFIX = '.lock';
 
-let holderId: Maybe<string> = none();
-
-const generateHolderId = (): string => {
-  if (isSome(holderId)) {
-    return holderId.value;
-  }
-  const newId = randomUUID();
-  holderId = some(newId);
-  return newId;
-};
+const generateHolderId = (): string => randomUUID();
 
 const getLockPath = (filePath: string): string => `${filePath}${LOCK_SUFFIX}`;
 

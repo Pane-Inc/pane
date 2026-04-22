@@ -1,12 +1,11 @@
 // Lifecycle operations (commit and close)
-import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import { ok, err, isNone, attempt } from '@deessejs/fp';
 import type { Try } from '@deessejs/fp';
 import { refreshLock, releaseLock } from '../../lock';
 import { closeDatabase } from './database';
 import { deleteFile } from './fs-operations';
-import { ReadOnlyError, CopyError, LockError } from './errors';
+import { ReadOnlyError, CopyError, LockError, DatabaseError } from './errors';
 import type { PaneState } from './state';
 
 const commitPane = (state: PaneState): Try<undefined, ReturnType<typeof ReadOnlyError | typeof CopyError | typeof LockError>> => {
@@ -18,9 +17,7 @@ const commitPane = (state: PaneState): Try<undefined, ReturnType<typeof ReadOnly
   }
   const checkpointResult = attempt(
     () => {
-      const db = new Database(state.tempPath);
-      db.pragma('wal_checkpoint(TRUNCATE)');
-      db.close();
+      state.db.pragma('wal_checkpoint(TRUNCATE)');
       fs.copyFileSync(state.tempPath, state.path);
       return undefined;
     },
@@ -36,10 +33,10 @@ const commitPane = (state: PaneState): Try<undefined, ReturnType<typeof ReadOnly
   return ok(undefined);
 };
 
-const closePane = (state: PaneState): Try<undefined, ReturnType<typeof CopyError | typeof LockError>> => {
+const closePane = (state: PaneState): Try<undefined, ReturnType<typeof CopyError | typeof LockError | typeof DatabaseError>> => {
   const closeResult = closeDatabase(state.db);
   if (!closeResult.ok) {
-    return err(LockError({ holderId: closeResult.error.name }));
+    return err(closeResult.error);
   }
   const deleteResult = deleteFile(state.tempPath);
   if (!deleteResult.ok) {
