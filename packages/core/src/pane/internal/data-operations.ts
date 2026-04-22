@@ -3,12 +3,75 @@ import Database from 'better-sqlite3';
 import { ok, err, attempt } from '@deessejs/fp';
 import type { Try } from '@deessejs/fp';
 import type { Row } from '../primitives';
+import type { FilterCondition, OrderBy, ReadOptions } from '../types';
 import { isSystemTable, validateIdentifier } from './helpers';
 import { SchemaError, InvalidIdentifierError, SystemTableError } from './errors';
 
+const buildWhereClause = (
+  conditions: readonly FilterCondition[]
+): { clause: string; values: (string | number)[] } => {
+  const clauses: string[] = [];
+  const values: (string | number)[] = [];
+
+  for (const cond of conditions) {
+    if (!validateIdentifier(cond.field)) {
+      continue; // Skip invalid fields
+    }
+
+    switch (cond.operator) {
+      case '=':
+      case '!=':
+      case '>':
+      case '<':
+      case '>=':
+      case '<=':
+        clauses.push(`${cond.field} ${cond.operator} ?`);
+        values.push(cond.value as string | number);
+        break;
+      case 'like':
+        clauses.push(`${cond.field} LIKE ?`);
+        values.push(`%${cond.value}%`);
+        break;
+      case 'in':
+        if (Array.isArray(cond.value) && cond.value.length > 0) {
+          const placeholders = cond.value.map(() => '?').join(', ');
+          clauses.push(`${cond.field} IN (${placeholders})`);
+          values.push(...cond.value.map(v => v as string | number));
+        }
+        break;
+      case 'not_in':
+        if (Array.isArray(cond.value) && cond.value.length > 0) {
+          const placeholders = cond.value.map(() => '?').join(', ');
+          clauses.push(`${cond.field} NOT IN (${placeholders})`);
+          values.push(...cond.value.map(v => v as string | number));
+        }
+        break;
+    }
+  }
+
+  return { clause: clauses.join(' AND '), values };
+};
+
+const buildOrderByClause = (
+  orderBy: readonly OrderBy[]
+): string => {
+  const clauses: string[] = [];
+
+  for (const order of orderBy) {
+    if (!validateIdentifier(order.field)) {
+      continue; // Skip invalid fields
+    }
+    const direction = order.direction === 'desc' ? 'DESC' : 'ASC';
+    clauses.push(`${order.field} ${direction}`);
+  }
+
+  return clauses.join(', ');
+};
+
 const readRows = (
   db: Database.Database,
-  table: string
+  table: string,
+  options?: ReadOptions
 ): Try<readonly Row[], ReturnType<typeof SchemaError | typeof InvalidIdentifierError | typeof SystemTableError>> => {
   if (!validateIdentifier(table)) {
     return err(InvalidIdentifierError({ identifier: table }));
@@ -18,8 +81,40 @@ const readRows = (
   }
   return attempt(
     () => {
-      const stmt = db.prepare(`SELECT * FROM ${table}`);
-      const rows = stmt.all() as Row[];
+      let sql = `SELECT * FROM ${table}`;
+
+      // Build WHERE clause
+      const whereClause = options?.where && options.where.length > 0
+        ? buildWhereClause(options.where)
+        : null;
+
+      if (whereClause && whereClause.clause) {
+        sql += ` WHERE ${whereClause.clause}`;
+      }
+
+      // Build ORDER BY clause
+      const orderByClause = options?.orderBy && options.orderBy.length > 0
+        ? buildOrderByClause(options.orderBy)
+        : null;
+
+      if (orderByClause) {
+        sql += ` ORDER BY ${orderByClause}`;
+      }
+
+      // Add LIMIT
+      if (options?.limit !== undefined && options.limit > 0) {
+        sql += ` LIMIT ${options.limit}`;
+      }
+
+      // Add OFFSET
+      if (options?.offset !== undefined && options.offset > 0) {
+        sql += ` OFFSET ${options.offset}`;
+      }
+
+      const stmt = db.prepare(sql);
+      const rows = whereClause && whereClause.values.length > 0
+        ? stmt.all(...whereClause.values) as Row[]
+        : stmt.all() as Row[];
       // Parse JSON for any field that looks like a JSON array string
       return rows.map(row => {
         const parsed: Row = {};

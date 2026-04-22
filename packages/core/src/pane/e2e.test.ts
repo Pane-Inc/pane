@@ -449,4 +449,135 @@ describe('Full Workflow E2E', () => {
     expect(readResult.value[0].tags).toEqual(['vip', 'customer']);
     reopenedPane.close();
   });
+
+  it('filters rows using where options', () => {
+    const filePath = getTestPath('filter-test');
+    cleanup(filePath);
+
+    const createResult = createPane({ path: filePath, overwrite: true });
+    expect(toOk(createResult)).toBe(true);
+    const pane = (createResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof createPane>>['value'];
+
+    pane.addTable({
+      name: 'tasks',
+      label: 'Task',
+      labelPlural: 'Tasks',
+      fields: [
+        { name: 'title', label: 'Title', type: 'text', required: true },
+        { name: 'status', label: 'Status', type: 'select', required: true, options: ['pending', 'done'] },
+        { name: 'priority', label: 'Priority', type: 'number', required: false },
+      ],
+    });
+
+    // Insert test data
+    pane.create('tasks', { title: 'Task 1', status: 'done', priority: 1 });
+    pane.create('tasks', { title: 'Task 2', status: 'pending', priority: 2 });
+    pane.create('tasks', { title: 'Task 3', status: 'done', priority: 3 });
+
+    pane.commit();
+    pane.close();
+
+    // Reopen and filter
+    const openResult = openPane({ path: filePath });
+    expect(toOk(openResult)).toBe(true);
+    const reopenedPane = (openResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof openPane>>['value'];
+
+    // Filter by status = 'done'
+    const filterResult = reopenedPane.read('tasks', {
+      where: [{ field: 'status', operator: '=', value: 'done' }],
+    });
+    expect(isOk(filterResult), `Filter failed: ${isErr(filterResult) ? JSON.stringify(filterResult.error) : ''}`).toBe(true);
+    expect(filterResult.value.length).toBe(2);
+    expect(filterResult.value.every(t => t.status === 'done')).toBe(true);
+
+    reopenedPane.close();
+  });
+
+  it('orders rows using orderBy options', () => {
+    const filePath = getTestPath('orderby-test');
+    cleanup(filePath);
+
+    const createResult = createPane({ path: filePath, overwrite: true });
+    expect(toOk(createResult)).toBe(true);
+    const pane = (createResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof createPane>>['value'];
+
+    pane.addTable({
+      name: 'tasks',
+      label: 'Task',
+      labelPlural: 'Tasks',
+      fields: [
+        { name: 'title', label: 'Title', type: 'text', required: true },
+        { name: 'priority', label: 'Priority', type: 'number', required: false },
+      ],
+    });
+
+    // Insert test data (not in order)
+    pane.create('tasks', { title: 'Task C', priority: 3 });
+    pane.create('tasks', { title: 'Task A', priority: 1 });
+    pane.create('tasks', { title: 'Task B', priority: 2 });
+
+    pane.commit();
+    pane.close();
+
+    // Reopen and order
+    const openResult = openPane({ path: filePath });
+    expect(toOk(openResult)).toBe(true);
+    const reopenedPane = (openResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof openPane>>['value'];
+
+    // Order by priority ascending
+    const orderResult = reopenedPane.read('tasks', {
+      orderBy: [{ field: 'priority', direction: 'asc' }],
+    });
+    expect(isOk(orderResult), `OrderBy failed: ${isErr(orderResult) ? JSON.stringify(orderResult.error) : ''}`).toBe(true);
+    expect(orderResult.value.length).toBe(3);
+    expect(orderResult.value[0].title).toBe('Task A');
+    expect(orderResult.value[1].title).toBe('Task B');
+    expect(orderResult.value[2].title).toBe('Task C');
+
+    reopenedPane.close();
+  });
+
+  it('limits rows using limit and offset options', () => {
+    const filePath = getTestPath('limit-offset-test');
+    cleanup(filePath);
+
+    const createResult = createPane({ path: filePath, overwrite: true });
+    expect(toOk(createResult)).toBe(true);
+    const pane = (createResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof createPane>>['value'];
+
+    pane.addTable({
+      name: 'items',
+      label: 'Item',
+      labelPlural: 'Items',
+      fields: [
+        { name: 'name', label: 'Name', type: 'text', required: true },
+      ],
+    });
+
+    // Insert 5 items
+    for (let i = 1; i <= 5; i++) {
+      pane.create('items', { name: `Item ${i}` });
+    }
+
+    pane.commit();
+    pane.close();
+
+    // Reopen and test limit/offset
+    const openResult = openPane({ path: filePath });
+    expect(toOk(openResult)).toBe(true);
+    const reopenedPane = (openResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof openPane>>['value'];
+
+    // Test limit only
+    const limitResult = reopenedPane.read('items', { limit: 2 });
+    expect(isOk(limitResult), `Limit failed: ${isErr(limitResult) ? JSON.stringify(limitResult.error) : ''}`).toBe(true);
+    expect(limitResult.value.length).toBe(2);
+
+    // Test limit with offset
+    const offsetResult = reopenedPane.read('items', { limit: 2, offset: 2 });
+    expect(isOk(offsetResult), `Offset failed: ${isErr(offsetResult) ? JSON.stringify(offsetResult.error) : ''}`).toBe(true);
+    expect(offsetResult.value.length).toBe(2);
+    expect(offsetResult.value[0].name).toBe('Item 3');
+
+    reopenedPane.close();
+  });
 });

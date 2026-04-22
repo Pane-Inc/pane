@@ -2,7 +2,7 @@
 import type { Maybe, Result, Error } from '@deessejs/fp';
 import { none, some, isSome } from '@deessejs/fp';
 import { ok, err } from '@deessejs/fp';
-import type { Pane, OpenPaneOptions, CreatePaneOptions } from './types';
+import type { Pane, OpenPaneOptions, CreatePaneOptions, ReadOptions } from './types';
 import type { Row } from '../primitives';
 import type { TableDefinition, FieldDefinition } from '../schema';
 import type { LockHandle } from '../lock';
@@ -12,6 +12,7 @@ import { ensureTempDir, copyFileToTemp, createEmptyFile, fileExists } from './in
 import { openDatabase, readSchemaFromDb, createSystemTables, initMeta } from './internal/database';
 import { readRows, insertRow, updateRow, deleteRow, upsertRow } from './internal/data-operations';
 import { createUserTable, addFieldToTable, addViewToSchema } from './internal/schema-mutations';
+import { importCsv, exportCsv, importJson, exportJson } from './internal/import-export';
 import { commitPane, closePane } from './internal/lifecycle';
 import { ReadOnlyError, SchemaError, LockError } from './internal/errors';
 import type { PaneState } from './internal/state';
@@ -52,8 +53,8 @@ const createPaneObject = (
     schema: buildSchema(),
     lock: state.lock,
     isReadOnly: state.isReadOnly,
-    read: (table: string) => {
-      const result = readRows(state.db, table);
+    read: (table: string, options?: ReadOptions) => {
+      const result = readRows(state.db, table, options);
       return result as unknown as Result<readonly Row[], Error>;
     },
     create: (table: string, values: Row) => {
@@ -83,6 +84,28 @@ const createPaneObject = (
       }
       const result = upsertRow(state.db, table, values, [...matchFields]);
       return result as unknown as Result<{ id: number; action: 'inserted' | 'updated' }, Error>;
+    },
+    importCsv: (table: string, csvContent: string, columnMapping?: Record<string, string>) => {
+      if (state.isReadOnly) {
+        return err(ReadOnlyError({})) as unknown as Result<number[], Error>;
+      }
+      const result = importCsv(state.db, table, csvContent, columnMapping);
+      return result as unknown as Result<number[], Error>;
+    },
+    exportCsv: (table: string) => {
+      const result = exportCsv(state.db, table);
+      return result as unknown as Result<string, Error>;
+    },
+    importJson: (table: string, jsonContent: string, columnMapping?: Record<string, string>) => {
+      if (state.isReadOnly) {
+        return err(ReadOnlyError({})) as unknown as Result<number[], Error>;
+      }
+      const result = importJson(state.db, table, jsonContent, columnMapping);
+      return result as unknown as Result<number[], Error>;
+    },
+    exportJson: (table: string) => {
+      const result = exportJson(state.db, table);
+      return result as unknown as Result<string, Error>;
     },
     addTable: (definition: TableDefinition) => {
       if (state.isReadOnly) {
@@ -125,7 +148,16 @@ const createPaneObject = (
         return err(ReadOnlyError({})) as unknown as Result<number, Error>;
       }
       const result = addViewToSchema(state.db, tableId, definition);
-      return result as unknown as Result<number, Error>;
+      if (!result.ok) {
+        return result as unknown as Result<number, Error>;
+      }
+      // Refresh schema after mutation
+      const schemaRefreshResult = readSchemaFromDb(state.db);
+      if (!schemaRefreshResult.ok) {
+        return err(schemaRefreshResult.error) as unknown as Result<number, Error>;
+      }
+      state.schema = schemaRefreshResult.value;
+      return ok(result.value) as unknown as Result<number, Error>;
     },
     commit: () => {
       const result = commitPane(state);

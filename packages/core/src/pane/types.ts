@@ -1,3 +1,24 @@
+// Filter condition for read operations
+export type FilterCondition = {
+  readonly field: string;
+  readonly operator: '=' | '!=' | '>' | '<' | '>=' | '<=' | 'like' | 'in' | 'not_in';
+  readonly value: string | number | readonly (string | number)[];
+};
+
+// Order by specification
+export type OrderBy = {
+  readonly field: string;
+  readonly direction: 'asc' | 'desc';
+};
+
+// Options for read operations
+export type ReadOptions = {
+  readonly where?: readonly FilterCondition[];
+  readonly orderBy?: readonly OrderBy[];
+  readonly limit?: number;
+  readonly offset?: number;
+};
+
 // Pane document handle
 import type { Maybe } from '@deessejs/fp';
 import type { LockHandle } from '../lock';
@@ -14,11 +35,17 @@ export type Pane = {
   readonly isReadOnly: boolean;
 
   // Data operations
-  read: (table: string) => import('@deessejs/fp').Result<readonly Row[], import('@deessejs/fp').Error>;
+  read: (table: string, options?: ReadOptions) => import('@deessejs/fp').Result<readonly Row[], import('@deessejs/fp').Error>;
   create: (table: string, values: Row) => import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
   update: (table: string, id: number, values: Row) => import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
   delete: (table: string, id: number) => import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
   upsert: (table: string, values: Row, matchFields: readonly string[]) => import('@deessejs/fp').Result<UpsertResult, import('@deessejs/fp').Error>;
+
+  // Import/Export operations
+  importCsv: (table: string, csvContent: string, columnMapping?: Record<string, string>) => import('@deessejs/fp').Result<number[], import('@deessejs/fp').Error>;
+  exportCsv: (table: string) => import('@deessejs/fp').Result<string, import('@deessejs/fp').Error>;
+  importJson: (table: string, jsonContent: string, columnMapping?: Record<string, string>) => import('@deessejs/fp').Result<number[], import('@deessejs/fp').Error>;
+  exportJson: (table: string) => import('@deessejs/fp').Result<string, import('@deessejs/fp').Error>;
 
   // Schema operations
   addTable: (definition: TableDefinition) => import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
