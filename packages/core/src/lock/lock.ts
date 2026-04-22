@@ -24,13 +24,12 @@ const generateHolderId = (): string => {
 const getLockPath = (filePath: string): string => `${filePath}${LOCK_SUFFIX}`;
 
 const readLockFile = (lockPath: string): Maybe<LockFileContent> => {
+  if (!fs.existsSync(lockPath)) {
+    return none();
+  }
   try {
-    if (!fs.existsSync(lockPath)) {
-      return none();
-    }
     const content = fs.readFileSync(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as LockFileContent;
-    return some(parsed);
+    return some(JSON.parse(content) as LockFileContent);
   } catch {
     return none();
   }
@@ -94,11 +93,9 @@ export const acquireLock = (
 
   const existingLock = readLockFile(lockPath);
   if (isSome(existingLock)) {
-    // Lock file exists - check if it's stale or if the original file was deleted
     const isStale = isLockStaleByContent(existingLock.value);
     const fileExists = fs.existsSync(options.path);
 
-    // If the lock is not stale AND the file still exists, it's genuinely locked
     if (!isStale && fileExists) {
       return err(
         FileLockedError({
@@ -107,8 +104,6 @@ export const acquireLock = (
         })
       );
     }
-
-    // Otherwise (stale or file deleted), the lock is orphaned - proceed to overwrite
   }
 
   const lockResult = acquireFileLock(lockPath);
