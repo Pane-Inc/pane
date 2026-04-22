@@ -19,7 +19,7 @@ export type Pane = {
   create: (table: string, values: Row) => import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
   update: (table: string, id: number, values: Row) => import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
   delete: (table: string, id: number) => import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
-  upsert: (table: string, values: Row, matchFields: readonly string[]) => import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+  upsert: (table: string, values: Row, matchFields: readonly string[]) => import('@deessejs/fp').Result<UpsertResult, import('@deessejs/fp').Error>;
 
   // Schema operations
   addTable: (definition: TableDefinition) => import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
@@ -48,6 +48,11 @@ export type ViewDefinition = {
   readonly icon?: string;
   readonly type: 'list' | 'kanban' | 'calendar' | 'chart' | 'custom';
   readonly config: Record<string, unknown>;
+};
+
+export type UpsertResult = {
+  readonly id: number;
+  readonly action: 'inserted' | 'updated';
 };
 
 export type CreatePaneOptions = {

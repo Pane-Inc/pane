@@ -502,12 +502,37 @@ var upsertRow = (db, table, values, matchFields) => {
   }
   try {
     const columns = Object.keys(values);
+    const valuesList = Object.values(values).map((v) => {
+      if (Array.isArray(v)) return JSON.stringify(v);
+      return v;
+    });
+    if (matchFields.length > 0) {
+      const existingStmt = db.prepare(`SELECT id FROM ${table} WHERE ${matchFields.map((f) => `${f} = ?`).join(" AND ")}`);
+      const existingValues = matchFields.map((f) => values[f]);
+      const existing = existingStmt.get(...existingValues);
+      if (existing) {
+        const nonMatchColumns = columns.filter((c) => !matchFields.includes(c));
+        const setClause = nonMatchColumns.map((k) => `${k} = ?`).join(", ");
+        const updateSql = `UPDATE ${table} SET ${setClause} WHERE id = ?`;
+        const updateStmt = db.prepare(updateSql);
+        const updateValues = nonMatchColumns.map((k) => {
+          const v = values[k];
+          if (Array.isArray(v)) return JSON.stringify(v);
+          return v;
+        });
+        updateStmt.run(...updateValues, existing.id);
+        return { ok: true, value: { id: existing.id, action: "updated" } };
+      } else {
+        const placeholders2 = columns.map(() => "?").join(", ");
+        const sql2 = `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders2})`;
+        const stmt2 = db.prepare(sql2);
+        return { ok: true, value: { id: stmt2.run(...valuesList).lastInsertRowid, action: "inserted" } };
+      }
+    }
     const placeholders = columns.map(() => "?").join(", ");
-    const setClause = columns.map((k) => `${k} = excluded.${k}`).join(", ");
-    const onConflict = matchFields.length > 0 ? `ON CONFLICT(${matchFields.join(", ")}) DO UPDATE SET ${setClause}` : `ON CONFLICT(id) DO UPDATE SET ${setClause}`;
-    const sql = `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders}) ${onConflict}`;
+    const sql = `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})`;
     const stmt = db.prepare(sql);
-    return { ok: true, value: stmt.run(...Object.values(values)).lastInsertRowid };
+    return { ok: true, value: { id: stmt.run(...valuesList).lastInsertRowid, action: "inserted" } };
   } catch (e) {
     return { ok: false, error: { name: "SchemaError", args: { reason: String(e) } } };
   }
@@ -556,9 +581,75 @@ var createUserTable = (db, definition) => {
     });
     columnDefs.push("id INTEGER PRIMARY KEY AUTOINCREMENT");
     columnDefs.push("created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))");
+    const uniqueFields = definition.fields.filter((f) => f.unique);
+    if (uniqueFields.length > 0) {
+      const uniqueColumns = uniqueFields.map((f) => `"${f.name}"`).join(", ");
+      columnDefs.push(`UNIQUE(${uniqueColumns})`);
+    }
     db.exec(`CREATE TABLE IF NOT EXISTS "${definition.name}" (${columnDefs.join(", ")})`);
     db.exec("COMMIT");
     return { ok: true, value: tableId };
+  } catch (e) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+    }
+    return { ok: false, error: { name: "TransactionError", args: { reason: String(e) } } };
+  }
+};
+var addFieldToTable = (db, tableId, tableName, definition) => {
+  if (!validateIdentifier(definition.name)) {
+    return { ok: false, error: { name: "InvalidIdentifierError", args: { identifier: definition.name } } };
+  }
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    const insertField = db.prepare(`
+      INSERT INTO _fields (_table_id, _name, _label, _type, _required, _default_value, _options, _formula, _sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = insertField.run(
+      tableId,
+      definition.name,
+      definition.label,
+      definition.type,
+      definition.required ? 1 : 0,
+      definition.defaultValue ? JSON.stringify(definition.defaultValue) : null,
+      definition.options ? JSON.stringify(definition.options) : null,
+      definition.formula ?? null,
+      0
+    );
+    const fieldId = result.lastInsertRowid;
+    let columnDef = `"${definition.name}" TEXT`;
+    if (definition.required) columnDef += " NOT NULL";
+    db.exec(`ALTER TABLE "${tableName}" ADD COLUMN ${columnDef}`);
+    db.exec("COMMIT");
+    return { ok: true, value: fieldId };
+  } catch (e) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+    }
+    return { ok: false, error: { name: "TransactionError", args: { reason: String(e) } } };
+  }
+};
+var addViewToSchema = (db, tableId, definition) => {
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    const insertView = db.prepare(`
+      INSERT INTO _views (_table_id, _name, _icon, _type, _config, _sort_order)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const result = insertView.run(
+      tableId,
+      definition.name,
+      definition.icon ?? null,
+      definition.type,
+      JSON.stringify(definition.config),
+      0
+    );
+    const viewId = result.lastInsertRowid;
+    db.exec("COMMIT");
+    return { ok: true, value: viewId };
   } catch (e) {
     try {
       db.exec("ROLLBACK");
@@ -685,30 +776,57 @@ var openPane = (options) => {
       return result;
     },
     create: (table, values) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: "ReadOnlyError", args: {} } };
+      }
       const result = insertRow(state.db, table, values);
       return result;
     },
     update: (table, id, values) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: "ReadOnlyError", args: {} } };
+      }
       const result = updateRow(state.db, table, id, values);
       return result;
     },
     delete: (table, id) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: "ReadOnlyError", args: {} } };
+      }
       const result = deleteRow(state.db, table, id);
       return result;
     },
     upsert: (table, values, matchFields) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: "ReadOnlyError", args: {} } };
+      }
       const result = upsertRow(state.db, table, values, [...matchFields]);
       return result;
     },
     addTable: (definition) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: "ReadOnlyError", args: {} } };
+      }
       const result = createUserTable(state.db, definition);
       return result;
     },
-    addField: () => {
-      return { ok: false, error: { name: "SchemaError", args: { reason: "Not implemented" } } };
+    addField: (tableId, definition) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: "ReadOnlyError", args: {} } };
+      }
+      const table = state.schema.tables.find((t) => t._id === tableId);
+      if (!table) {
+        return { ok: false, error: { name: "SchemaError", args: { reason: `Table with id ${tableId} not found` } } };
+      }
+      const result = addFieldToTable(state.db, tableId, table._name, definition);
+      return result;
     },
-    addView: () => {
-      return { ok: false, error: { name: "SchemaError", args: { reason: "Not implemented" } } };
+    addView: (tableId, definition) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: "ReadOnlyError", args: {} } };
+      }
+      const result = addViewToSchema(state.db, tableId, definition);
+      return result;
     },
     commit: () => {
       const result = commitPane(state);
@@ -820,11 +938,17 @@ var createPane = (options) => {
       const result = createUserTable(state.db, definition);
       return result;
     },
-    addField: () => {
-      return { ok: false, error: { name: "SchemaError", args: { reason: "Not implemented" } } };
+    addField: (tableId, definition) => {
+      const table = state.schema.tables.find((t) => t._id === tableId);
+      if (!table) {
+        return { ok: false, error: { name: "SchemaError", args: { reason: `Table with id ${tableId} not found` } } };
+      }
+      const result = addFieldToTable(state.db, tableId, table._name, definition);
+      return result;
     },
-    addView: () => {
-      return { ok: false, error: { name: "SchemaError", args: { reason: "Not implemented" } } };
+    addView: (tableId, definition) => {
+      const result = addViewToSchema(state.db, tableId, definition);
+      return result;
     },
     commit: () => {
       const result = commitPane(state);

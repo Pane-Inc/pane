@@ -17,7 +17,7 @@ const contactsTableDefinition = {
   labelPlural: 'Contacts',
   icon: 'user',
   fields: [
-    { name: 'email', label: 'Email', type: 'text', required: true },
+    { name: 'email', label: 'Email', type: 'text', required: true, unique: true },
     { name: 'name', label: 'Name', type: 'text', required: true },
     { name: 'phone', label: 'Phone', type: 'text', required: false },
     { name: 'company', label: 'Company', type: 'text', required: false },
@@ -117,7 +117,7 @@ async function demonstrateUpsert(pane: Pane) {
   const upsertResult = pane.upsert('contacts', newContact, ['email']);
 
   if (isOk(upsertResult)) {
-    console.log(`Upsert successful! Contact ID: ${upsertResult.value}`);
+    console.log(`Upsert successful! Contact ID: ${upsertResult.value.id} (${upsertResult.value.action})`);
   } else {
     console.error('Upsert failed:', upsertResult.error);
   }
@@ -127,7 +127,7 @@ async function demonstrateUpsert(pane: Pane) {
   const upsertUpdateResult = pane.upsert('contacts', existingContact, ['email']);
 
   if (isOk(upsertUpdateResult)) {
-    console.log(`Upsert update successful! Contact ID: ${upsertUpdateResult.value}`);
+    console.log(`Upsert update successful! Contact ID: ${upsertUpdateResult.value.id} (${upsertUpdateResult.value.action})`);
   } else {
     console.error('Upsert update failed:', upsertUpdateResult.error);
   }

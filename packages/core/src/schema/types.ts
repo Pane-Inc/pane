@@ -18,6 +18,7 @@ export type FieldDefinition = {
   readonly label: string;
   readonly type: FieldType;
   readonly required: boolean;
+  readonly unique?: boolean;
   readonly defaultValue?: unknown;
   readonly options?: readonly string[];
   readonly foreignTable?: string;
@@ -25,7 +26,7 @@ export type FieldDefinition = {
 };
 
 export type TableDefinition = {
-  readonly id: number;
+  readonly id?: number;
   readonly name: string;
   readonly label: string;
   readonly labelPlural: string;

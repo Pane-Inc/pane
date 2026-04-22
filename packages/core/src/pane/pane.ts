@@ -397,7 +397,7 @@ const upsertRow = (
   table: string,
   values: Row,
   matchFields: string[]
-): { ok: true; value: number } | { ok: false; error: SchemaError | InvalidIdentifierError | SystemTableError } => {
+): { ok: true; value: { id: number; action: 'inserted' | 'updated' } } | { ok: false; error: SchemaError | InvalidIdentifierError | SystemTableError } => {
   if (isSystemTable(table)) {
     return { ok: false, error: { name: 'SystemTableError', args: { table } } };
   }
@@ -406,16 +406,46 @@ const upsertRow = (
   }
   try {
     const columns = Object.keys(values);
+    const valuesList = Object.values(values).map(v => {
+      // Serialize arrays to JSON strings
+      if (Array.isArray(v)) return JSON.stringify(v);
+      return v;
+    });
+
+    // If matchFields specified, try ON CONFLICT first
+    if (matchFields.length > 0) {
+      // First check if row exists
+      const existingStmt = db.prepare(`SELECT id FROM ${table} WHERE ${matchFields.map(f => `${f} = ?`).join(' AND ')}`);
+      const existingValues = matchFields.map(f => values[f]);
+      const existing = existingStmt.get(...existingValues) as { id: number } | undefined;
+
+      if (existing) {
+        // UPDATE existing row
+        const nonMatchColumns = columns.filter(c => !matchFields.includes(c));
+        const setClause = nonMatchColumns.map(k => `${k} = ?`).join(', ');
+        const updateSql = `UPDATE ${table} SET ${setClause} WHERE id = ?`;
+        const updateStmt = db.prepare(updateSql);
+        const updateValues = nonMatchColumns.map(k => {
+          const v = values[k];
+          if (Array.isArray(v)) return JSON.stringify(v);
+          return v;
+        });
+        updateStmt.run(...updateValues, existing.id);
+        return { ok: true, value: { id: existing.id, action: 'updated' as const } };
+      } else {
+        // INSERT new row
+        const placeholders = columns.map(() => '?').join(', ');
+        const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`;
+        const stmt = db.prepare(sql);
+        return { ok: true, value: { id: stmt.run(...valuesList).lastInsertRowid as number, action: 'inserted' as const } };
+      }
+    }
+
+    // Otherwise use standard INSERT
     const placeholders = columns.map(() => '?').join(', ');
-    const setClause = columns.map(k => `${k} = excluded.${k}`).join(', ');
-
-    const onConflict = matchFields.length > 0
-      ? `ON CONFLICT(${matchFields.join(', ')}) DO UPDATE SET ${setClause}`
-      : `ON CONFLICT(id) DO UPDATE SET ${setClause}`;
-
-    const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders}) ${onConflict}`;
+    const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`;
     const stmt = db.prepare(sql);
-    return { ok: true, value: stmt.run(...Object.values(values)).lastInsertRowid as number };
+    return { ok: true, value: { id: stmt.run(...valuesList).lastInsertRowid as number, action: 'inserted' as const } };
   } catch (e) {
     return { ok: false, error: { name: 'SchemaError', args: { reason: String(e) } } };
   }
@@ -477,10 +507,90 @@ const createUserTable = (
     columnDefs.push('id INTEGER PRIMARY KEY AUTOINCREMENT');
     columnDefs.push('created_at TEXT DEFAULT (strftime(\'%Y-%m-%dT%H:%M:%fZ\', \'now\'))');
 
+    // Create UNIQUE constraint for unique fields (needed for upsert ON CONFLICT)
+    const uniqueFields = definition.fields.filter(f => f.unique);
+    if (uniqueFields.length > 0) {
+      const uniqueColumns = uniqueFields.map(f => `"${f.name}"`).join(', ');
+      columnDefs.push(`UNIQUE(${uniqueColumns})`);
+    }
+
     db.exec(`CREATE TABLE IF NOT EXISTS "${definition.name}" (${columnDefs.join(', ')})`);
     db.exec('COMMIT');
 
     return { ok: true, value: tableId };
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+    return { ok: false, error: { name: 'TransactionError', args: { reason: String(e) } } };
+  }
+};
+
+const addFieldToTable = (
+  db: Database.Database,
+  tableId: number,
+  tableName: string,
+  definition: FieldDefinition
+): { ok: true; value: number } | { ok: false; error: SchemaError | InvalidIdentifierError | TransactionError } => {
+  if (!validateIdentifier(definition.name)) {
+    return { ok: false, error: { name: 'InvalidIdentifierError', args: { identifier: definition.name } } };
+  }
+  try {
+    db.exec('BEGIN IMMEDIATE');
+
+    // Insert field metadata
+    const insertField = db.prepare(`
+      INSERT INTO _fields (_table_id, _name, _label, _type, _required, _default_value, _options, _formula, _sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = insertField.run(
+      tableId,
+      definition.name,
+      definition.label,
+      definition.type,
+      definition.required ? 1 : 0,
+      definition.defaultValue ? JSON.stringify(definition.defaultValue) : null,
+      definition.options ? JSON.stringify(definition.options) : null,
+      definition.formula ?? null,
+      0
+    );
+    const fieldId = result.lastInsertRowid as number;
+
+    // Add column to user table
+    let columnDef = `"${definition.name}" TEXT`;
+    if (definition.required) columnDef += ' NOT NULL';
+    db.exec(`ALTER TABLE "${tableName}" ADD COLUMN ${columnDef}`);
+
+    db.exec('COMMIT');
+    return { ok: true, value: fieldId };
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+    return { ok: false, error: { name: 'TransactionError', args: { reason: String(e) } } };
+  }
+};
+
+const addViewToSchema = (
+  db: Database.Database,
+  tableId: number | null,
+  definition: { name: string; icon?: string; type: string; config: Record<string, unknown> }
+): { ok: true; value: number } | { ok: false; error: SchemaError | TransactionError } => {
+  try {
+    db.exec('BEGIN IMMEDIATE');
+
+    const insertView = db.prepare(`
+      INSERT INTO _views (_table_id, _name, _icon, _type, _config, _sort_order)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const result = insertView.run(
+      tableId,
+      definition.name,
+      definition.icon ?? null,
+      definition.type,
+      JSON.stringify(definition.config),
+      0
+    );
+    const viewId = result.lastInsertRowid as number;
+
+    db.exec('COMMIT');
+    return { ok: true, value: viewId };
   } catch (e) {
     try { db.exec('ROLLBACK'); } catch { /* ignore */ }
     return { ok: false, error: { name: 'TransactionError', args: { reason: String(e) } } };
@@ -644,30 +754,57 @@ export const openPane = (options: OpenPaneOptions): { ok: true; value: Pane } | 
       return result as unknown as import('@deessejs/fp').Result<readonly Row[], import('@deessejs/fp').Error>;
     },
     create: (table: string, values: Row) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+      }
       const result = insertRow(state.db, table, values);
       return result as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
     },
     update: (table: string, id: number, values: Row) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
+      }
       const result = updateRow(state.db, table, id, values);
       return result as unknown as import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
     },
     delete: (table: string, id: number) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
+      }
       const result = deleteRow(state.db, table, id);
       return result as unknown as import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
     },
     upsert: (table: string, values: Row, matchFields: readonly string[]) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<{ id: number; action: 'inserted' | 'updated' }, import('@deessejs/fp').Error>;
+      }
       const result = upsertRow(state.db, table, values, [...matchFields]);
-      return result as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+      return result as unknown as import('@deessejs/fp').Result<{ id: number; action: 'inserted' | 'updated' }, import('@deessejs/fp').Error>;
     },
     addTable: (definition: TableDefinition) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+      }
       const result = createUserTable(state.db, definition);
       return result as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
     },
-    addField: () => {
-      return { ok: false, error: { name: 'SchemaError', args: { reason: 'Not implemented' } } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+    addField: (tableId: number, definition: FieldDefinition) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+      }
+      const table = state.schema.tables.find(t => t._id === tableId);
+      if (!table) {
+        return { ok: false, error: { name: 'SchemaError', args: { reason: `Table with id ${tableId} not found` } } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+      }
+      const result = addFieldToTable(state.db, tableId, table._name, definition);
+      return result as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
     },
-    addView: () => {
-      return { ok: false, error: { name: 'SchemaError', args: { reason: 'Not implemented' } } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+    addView: (tableId: number | null, definition: { name: string; icon?: string; type: 'list' | 'kanban' | 'calendar' | 'chart' | 'custom'; config: Record<string, unknown>; }) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+      }
+      const result = addViewToSchema(state.db, tableId, definition);
+      return result as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
     },
     commit: () => {
       const result = commitPane(state);
@@ -785,30 +922,57 @@ export const createPane = (options: CreatePaneOptions): { ok: true; value: Pane 
       return result as unknown as import('@deessejs/fp').Result<readonly Row[], import('@deessejs/fp').Error>;
     },
     create: (table: string, values: Row) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+      }
       const result = insertRow(state.db, table, values);
       return result as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
     },
     update: (table: string, id: number, values: Row) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
+      }
       const result = updateRow(state.db, table, id, values);
       return result as unknown as import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
     },
     delete: (table: string, id: number) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
+      }
       const result = deleteRow(state.db, table, id);
       return result as unknown as import('@deessejs/fp').Result<void, import('@deessejs/fp').Error>;
     },
     upsert: (table: string, values: Row, matchFields: readonly string[]) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<{ id: number; action: 'inserted' | 'updated' }, import('@deessejs/fp').Error>;
+      }
       const result = upsertRow(state.db, table, values, [...matchFields]);
-      return result as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+      return result as unknown as import('@deessejs/fp').Result<{ id: number; action: 'inserted' | 'updated' }, import('@deessejs/fp').Error>;
     },
     addTable: (definition: TableDefinition) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+      }
       const result = createUserTable(state.db, definition);
       return result as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
     },
-    addField: () => {
-      return { ok: false, error: { name: 'SchemaError', args: { reason: 'Not implemented' } } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+    addField: (tableId: number, definition: FieldDefinition) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+      }
+      const table = state.schema.tables.find(t => t._id === tableId);
+      if (!table) {
+        return { ok: false, error: { name: 'SchemaError', args: { reason: `Table with id ${tableId} not found` } } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+      }
+      const result = addFieldToTable(state.db, tableId, table._name, definition);
+      return result as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
     },
-    addView: () => {
-      return { ok: false, error: { name: 'SchemaError', args: { reason: 'Not implemented' } } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+    addView: (tableId: number | null, definition: { name: string; icon?: string; type: 'list' | 'kanban' | 'calendar' | 'chart' | 'custom'; config: Record<string, unknown>; }) => {
+      if (state.isReadOnly) {
+        return { ok: false, error: { name: 'ReadOnlyError', args: {} } } as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
+      }
+      const result = addViewToSchema(state.db, tableId, definition);
+      return result as unknown as import('@deessejs/fp').Result<number, import('@deessejs/fp').Error>;
     },
     commit: () => {
       const result = commitPane(state);

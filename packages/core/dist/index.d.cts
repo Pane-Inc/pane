@@ -77,13 +77,14 @@ type FieldDefinition = {
     readonly label: string;
     readonly type: FieldType;
     readonly required: boolean;
+    readonly unique?: boolean;
     readonly defaultValue?: unknown;
     readonly options?: readonly string[];
     readonly foreignTable?: string;
     readonly formula?: string;
 };
 type TableDefinition = {
-    readonly id: number;
+    readonly id?: number;
     readonly name: string;
     readonly label: string;
     readonly labelPlural: string;
@@ -213,7 +214,7 @@ type Pane = {
     create: (table: string, values: Row) => _deessejs_fp.Result<number, _deessejs_fp.Error>;
     update: (table: string, id: number, values: Row) => _deessejs_fp.Result<void, _deessejs_fp.Error>;
     delete: (table: string, id: number) => _deessejs_fp.Result<void, _deessejs_fp.Error>;
-    upsert: (table: string, values: Row, matchFields: readonly string[]) => _deessejs_fp.Result<number, _deessejs_fp.Error>;
+    upsert: (table: string, values: Row, matchFields: readonly string[]) => _deessejs_fp.Result<UpsertResult, _deessejs_fp.Error>;
     addTable: (definition: TableDefinition) => _deessejs_fp.Result<number, _deessejs_fp.Error>;
     addField: (tableId: number, definition: FieldDefinition) => _deessejs_fp.Result<number, _deessejs_fp.Error>;
     addView: (tableId: number | null, definition: ViewDefinition) => _deessejs_fp.Result<number, _deessejs_fp.Error>;
@@ -235,6 +236,10 @@ type ViewDefinition = {
     readonly icon?: string;
     readonly type: 'list' | 'kanban' | 'calendar' | 'chart' | 'custom';
     readonly config: Record<string, unknown>;
+};
+type UpsertResult = {
+    readonly id: number;
+    readonly action: 'inserted' | 'updated';
 };
 type CreatePaneOptions = {
     readonly path: string;
@@ -262,4 +267,4 @@ declare const createPane: (options: CreatePaneOptions) => {
     error: unknown;
 };
 
-export { type AcquireLockOptions, type CalendarViewConfig, type ChartViewConfig, type CreateOptions, type CreatePaneOptions, type DividerWidgetConfig, type DocumentHandle, type DocumentResult, type FieldDefinition, type FieldType, type FieldValue, FileLockedError, type FilterDefinition, type FilterOperator, type FormWidgetConfig, type ImageWidgetConfig, type KanbanViewConfig, type ListViewConfig, LockExpiredError, type LockFileContent, type LockHandle, LockNotFoundError, type LockResult, LockWriteError, type MetricWidgetConfig, type OpenOptions, type OpenPaneOptions, type OrderBy, type Pane, type PaneError, type Position, type ReadOptions, type RefreshLockOptions, type ReleaseLockOptions, type Row, type RowId, type Schema, SchemaMismatchError, type TableDefinition, type TableName, type TextWidgetConfig, ValidationError, type View, type ViewConfig, type ViewDefinition, type ViewType, type Widget, type WidgetConfig, type WidgetType, WriteError, acquireLock, checkLockStatus, createPane, isLockStale, openPane, refreshLock, releaseLock };
+export { type AcquireLockOptions, type CalendarViewConfig, type ChartViewConfig, type CreateOptions, type CreatePaneOptions, type DividerWidgetConfig, type DocumentHandle, type DocumentResult, type FieldDefinition, type FieldType, type FieldValue, FileLockedError, type FilterDefinition, type FilterOperator, type FormWidgetConfig, type ImageWidgetConfig, type KanbanViewConfig, type ListViewConfig, LockExpiredError, type LockFileContent, type LockHandle, LockNotFoundError, type LockResult, LockWriteError, type MetricWidgetConfig, type OpenOptions, type OpenPaneOptions, type OrderBy, type Pane, type PaneError, type Position, type ReadOptions, type RefreshLockOptions, type ReleaseLockOptions, type Row, type RowId, type Schema, SchemaMismatchError, type TableDefinition, type TableName, type TextWidgetConfig, type UpsertResult, ValidationError, type View, type ViewConfig, type ViewDefinition, type ViewType, type Widget, type WidgetConfig, type WidgetType, WriteError, acquireLock, checkLockStatus, createPane, isLockStale, openPane, refreshLock, releaseLock };
