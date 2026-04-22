@@ -580,4 +580,298 @@ describe('Full Workflow E2E', () => {
 
     reopenedPane.close();
   });
+
+  it('imports CSV content into table', () => {
+    const filePath = getTestPath('import-csv-test');
+    cleanup(filePath);
+
+    const createResult = createPane({ path: filePath, overwrite: true });
+    expect(toOk(createResult)).toBe(true);
+    const pane = (createResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof createPane>>['value'];
+
+    pane.addTable({
+      name: 'products',
+      label: 'Product',
+      labelPlural: 'Products',
+      fields: [
+        { name: 'name', label: 'Name', type: 'text', required: true },
+        { name: 'price', label: 'Price', type: 'number', required: false },
+      ],
+    });
+
+    const csvContent = `name,price
+Widget,19.99
+Gadget,29.99
+Tool,9.99`;
+
+    const importResult = pane.importCsv('products', csvContent);
+    expect(isOk(importResult), `importCsv failed: ${isErr(importResult) ? JSON.stringify(importResult.error) : ''}`).toBe(true);
+    expect(importResult.value.length).toBe(3);
+
+    pane.commit();
+    pane.close();
+
+    // Verify data was imported
+    const openResult = openPane({ path: filePath });
+    expect(toOk(openResult)).toBe(true);
+    const reopenedPane = (openResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof openPane>>['value'];
+    const readResult = reopenedPane.read('products');
+    expect(isOk(readResult)).toBe(true);
+    expect(readResult.value.length).toBe(3);
+    expect(readResult.value[0].name).toBe('Widget');
+    expect(readResult.value[0].price).toBe('19.99');
+    reopenedPane.close();
+  });
+
+  it('exports table content to CSV', () => {
+    const filePath = getTestPath('export-csv-test');
+    cleanup(filePath);
+
+    const createResult = createPane({ path: filePath, overwrite: true });
+    expect(toOk(createResult)).toBe(true);
+    const pane = (createResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof createPane>>['value'];
+
+    pane.addTable({
+      name: 'tasks',
+      label: 'Task',
+      labelPlural: 'Tasks',
+      fields: [
+        { name: 'title', label: 'Title', type: 'text', required: true },
+        { name: 'done', label: 'Done', type: 'checkbox', required: false },
+      ],
+    });
+
+    pane.create('tasks', { title: 'Task 1', done: 1 });
+    pane.create('tasks', { title: 'Task 2', done: 0 });
+
+    const exportResult = pane.exportCsv('tasks');
+    expect(isOk(exportResult), `exportCsv failed: ${isErr(exportResult) ? JSON.stringify(exportResult.error) : ''}`).toBe(true);
+
+    const lines = exportResult.value.split('\n');
+    expect(lines.length).toBe(3);
+    expect(lines[0]).toContain('title');
+    expect(lines[0]).toContain('done');
+    expect(lines[1]).toContain('Task 1');
+    expect(lines[2]).toContain('Task 2');
+
+    pane.close();
+  });
+
+  it('imports JSON content into table', () => {
+    const filePath = getTestPath('import-json-test');
+    cleanup(filePath);
+
+    const createResult = createPane({ path: filePath, overwrite: true });
+    expect(toOk(createResult)).toBe(true);
+    const pane = (createResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof createPane>>['value'];
+
+    pane.addTable({
+      name: 'users',
+      label: 'User',
+      labelPlural: 'Users',
+      fields: [
+        { name: 'name', label: 'Name', type: 'text', required: true },
+        { name: 'age', label: 'Age', type: 'number', required: false },
+      ],
+    });
+
+    const jsonContent = JSON.stringify([
+      { name: 'Alice', age: 30 },
+      { name: 'Bob', age: 25 },
+    ]);
+
+    const importResult = pane.importJson('users', jsonContent);
+    expect(isOk(importResult), `importJson failed: ${isErr(importResult) ? JSON.stringify(importResult.error) : ''}`).toBe(true);
+    expect(importResult.value.length).toBe(2);
+
+    pane.commit();
+    pane.close();
+
+    const openResult = openPane({ path: filePath });
+    expect(toOk(openResult)).toBe(true);
+    const reopenedPane = (openResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof openPane>>['value'];
+    const readResult = reopenedPane.read('users');
+    expect(isOk(readResult)).toBe(true);
+    expect(readResult.value.length).toBe(2);
+    expect(readResult.value[0].name).toBe('Alice');
+    expect(readResult.value[1].name).toBe('Bob');
+    reopenedPane.close();
+  });
+
+  it('exports table content to JSON', () => {
+    const filePath = getTestPath('export-json-test');
+    cleanup(filePath);
+
+    const createResult = createPane({ path: filePath, overwrite: true });
+    expect(toOk(createResult)).toBe(true);
+    const pane = (createResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof createPane>>['value'];
+
+    pane.addTable({
+      name: 'items',
+      label: 'Item',
+      labelPlural: 'Items',
+      fields: [
+        { name: 'label', label: 'Label', type: 'text', required: true },
+      ],
+    });
+
+    pane.create('items', { label: 'First' });
+    pane.create('items', { label: 'Second' });
+
+    const exportResult = pane.exportJson('items');
+    expect(isOk(exportResult), `exportJson failed: ${isErr(exportResult) ? JSON.stringify(exportResult.error) : ''}`).toBe(true);
+
+    const parsed = JSON.parse(exportResult.value);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed.length).toBe(2);
+    expect(parsed[0].label).toBe('First');
+    expect(parsed[1].label).toBe('Second');
+
+    pane.close();
+  });
+
+  it('imports CSV with column mapping', () => {
+    const filePath = getTestPath('import-csv-mapping-test');
+    cleanup(filePath);
+
+    const createResult = createPane({ path: filePath, overwrite: true });
+    expect(toOk(createResult)).toBe(true);
+    const pane = (createResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof createPane>>['value'];
+
+    pane.addTable({
+      name: 'contacts',
+      label: 'Contact',
+      labelPlural: 'Contacts',
+      fields: [
+        { name: 'email', label: 'Email', type: 'text', required: true },
+        { name: 'fullName', label: 'Full Name', type: 'text', required: false },
+      ],
+    });
+
+    const csvContent = `Email Address,Full Name
+alice@test.com,Alice Anderson
+bob@test.com,Bob Builder`;
+
+    const importResult = pane.importCsv('contacts', csvContent, {
+      'Email Address': 'email',
+      'Full Name': 'fullName',
+    });
+    expect(isOk(importResult), `importCsv with mapping failed: ${isErr(importResult) ? JSON.stringify(importResult.error) : ''}`).toBe(true);
+    expect(importResult.value.length).toBe(2);
+
+    pane.commit();
+    pane.close();
+
+    const openResult = openPane({ path: filePath });
+    expect(toOk(openResult)).toBe(true);
+    const reopenedPane = (openResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof openPane>>['value'];
+    const readResult = reopenedPane.read('contacts');
+    expect(isOk(readResult)).toBe(true);
+    expect(readResult.value[0].email).toBe('alice@test.com');
+    expect(readResult.value[0].fullName).toBe('Alice Anderson');
+    reopenedPane.close();
+  });
+
+  it('rejects import operations in read-only mode', () => {
+    const filePath = getTestPath('import-readonly-test');
+    cleanup(filePath);
+
+    const createResult = createPane({ path: filePath, overwrite: true });
+    expect(toOk(createResult)).toBe(true);
+    const pane = (createResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof createPane>>['value'];
+
+    pane.addTable({
+      name: 'items',
+      label: 'Item',
+      labelPlural: 'Items',
+      fields: [
+        { name: 'name', label: 'Name', type: 'text', required: true },
+      ],
+    });
+
+    pane.create('items', { name: 'Test Item' });
+    pane.commit();
+    pane.close();
+
+    const openResult = openPane({ path: filePath, readOnly: true });
+    expect(toOk(openResult)).toBe(true);
+    const readOnlyPane = (openResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof openPane>>['value'];
+
+    const csvImportResult = readOnlyPane.importCsv('items', 'name\nNew Item');
+    expect(isErr(csvImportResult)).toBe(true);
+    if (isErr(csvImportResult)) {
+      expect(csvImportResult.error.name).toBe('ReadOnlyError');
+    }
+
+    const jsonImportResult = readOnlyPane.importJson('items', '[]');
+    expect(isErr(jsonImportResult)).toBe(true);
+    if (isErr(jsonImportResult)) {
+      expect(jsonImportResult.error.name).toBe('ReadOnlyError');
+    }
+
+    readOnlyPane.close();
+  });
+
+  it('handles malformed CSV gracefully', () => {
+    const filePath = getTestPath('malformed-csv-test');
+    cleanup(filePath);
+
+    const createResult = createPane({ path: filePath, overwrite: true });
+    expect(toOk(createResult)).toBe(true);
+    const pane = (createResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof createPane>>['value'];
+
+    pane.addTable({
+      name: 'data',
+      label: 'Data',
+      labelPlural: 'Data',
+      fields: [
+        { name: 'value', label: 'Value', type: 'number', required: false },
+      ],
+    });
+
+    const csvContent = `value
+42`;
+
+    const importResult = pane.importCsv('data', csvContent);
+    expect(isOk(importResult)).toBe(true);
+    expect(importResult.value.length).toBe(1);
+
+    const badCsvContent = `value
+not_a_number`;
+
+    const badImportResult = pane.importCsv('data', badCsvContent);
+    expect(isErr(badImportResult)).toBe(true);
+
+    pane.close();
+  });
+
+  it('handles malformed JSON gracefully', () => {
+    const filePath = getTestPath('malformed-json-test');
+    cleanup(filePath);
+
+    const createResult = createPane({ path: filePath, overwrite: true });
+    expect(toOk(createResult)).toBe(true);
+    const pane = (createResult as { ok: true; value: unknown }).value as Awaited<ReturnType<typeof createPane>>['value'];
+
+    pane.addTable({
+      name: 'data',
+      label: 'Data',
+      labelPlural: 'Data',
+      fields: [
+        { name: 'name', label: 'Name', type: 'text', required: true },
+      ],
+    });
+
+    const badJsonContent = 'not valid json at all';
+
+    const importResult = pane.importJson('data', badJsonContent);
+    expect(isErr(importResult)).toBe(true);
+
+    const nonArrayJson = '{"name": "test"}';
+
+    const nonArrayResult = pane.importJson('data', nonArrayJson);
+    expect(isErr(nonArrayResult)).toBe(true);
+
+    pane.close();
+  });
 });
